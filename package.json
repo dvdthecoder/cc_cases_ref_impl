@@ -1,0 +1,27 @@
+{
+  "name": "cc-cases-ref-impl",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "dev:ui": "npm run dev --prefix ui",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:ui\"",
+    "build": "tsc -p tsconfig.json",
+    "seed": "tsx scripts/seed.ts",
+    "export": "tsx scripts/export.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "better-sqlite3": "^9.6.0",
+    "fastify": "^4.28.1",
+    "uuid": "^9.0.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.10",
+    "@types/node": "^20.14.0",
+    "concurrently": "^8.2.2",
+    "tsx": "^4.15.6",
+    "typescript": "^5.4.5"
+  }
+}
