@@ -167,11 +167,18 @@ export const caseRepo = {
     const sets: string[] = []
     const params: Record<string, unknown> = { id, orgId, ts }
 
+    const boolCols = new Set(['isEscalated', 'isClosed'])
+
     for (const [key, col] of Object.entries(colMap)) {
       const val = (updates as Record<string, unknown>)[key]
       if (val !== undefined) {
         sets.push(`${col} = @${key}`)
-        params[key] = val
+        // SQLite doesn't accept JS booleans or undefined — coerce to integers/null
+        if (boolCols.has(key)) {
+          params[key] = val === true ? 1 : 0
+        } else {
+          params[key] = val ?? null
+        }
       }
     }
 
