@@ -10,6 +10,14 @@ updates:
     labels:
       - dependencies
       - security
+    ignore:
+      # Major version migrations that need manual work:
+      # TypeScript 6 — moduleResolution migration required
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # Zod 4 — .refine() API changed, all schemas need audit
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
     groups:
       fastify:
         patterns:
@@ -33,6 +41,14 @@ updates:
       - dependencies
       - security
       - ui
+    ignore:
+      # Major version migrations that need manual work:
+      # TypeScript 6 — CSS import type handling changed
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # Tailwind 4 — config format completely replaced with CSS-native approach
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
     groups:
       react:
         patterns:
