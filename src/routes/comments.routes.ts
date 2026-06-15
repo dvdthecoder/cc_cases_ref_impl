@@ -3,9 +3,9 @@ import { z } from 'zod'
 import { caseService } from '../services/case.service'
 
 const commentSchema = z.object({
-  body: z.string().min(1),
-  authorId: z.string().optional(),
-  authorName: z.string().optional(),
+  body: z.string().min(1).max(50_000),   // 50 KB — covers long support threads
+  authorId: z.string().max(255).optional(),
+  authorName: z.string().max(255).optional(),
   isPublic: z.boolean().optional(),
 })
 

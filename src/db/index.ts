@@ -83,4 +83,39 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_events_case ON events(case_id);
   CREATE INDEX IF NOT EXISTS idx_events_org ON events(org_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_comments_case ON comments(case_id);
+
+  -- FTS5 full-text search over subject, description, contact fields, and tags.
+  -- External-content mode: index stores tokens only; text is read from the cases table.
+  CREATE VIRTUAL TABLE IF NOT EXISTS cases_fts USING fts5(
+    case_number, subject, description, contact_name, contact_email, tags,
+    content='cases',
+    content_rowid='rowid',
+    tokenize='porter ascii'
+  );
+
+  -- Keep the FTS index in sync via triggers
+  CREATE TRIGGER IF NOT EXISTS cases_fts_ai AFTER INSERT ON cases BEGIN
+    INSERT INTO cases_fts(rowid, case_number, subject, description, contact_name, contact_email, tags)
+    VALUES (new.rowid, new.case_number, new.subject, new.description,
+      COALESCE(new.contact_name,''), COALESCE(new.contact_email,''), new.tags);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS cases_fts_ad AFTER DELETE ON cases BEGIN
+    INSERT INTO cases_fts(cases_fts, rowid, case_number, subject, description, contact_name, contact_email, tags)
+    VALUES ('delete', old.rowid, old.case_number, old.subject, old.description,
+      COALESCE(old.contact_name,''), COALESCE(old.contact_email,''), old.tags);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS cases_fts_au AFTER UPDATE ON cases BEGIN
+    INSERT INTO cases_fts(cases_fts, rowid, case_number, subject, description, contact_name, contact_email, tags)
+    VALUES ('delete', old.rowid, old.case_number, old.subject, old.description,
+      COALESCE(old.contact_name,''), COALESCE(old.contact_email,''), old.tags);
+    INSERT INTO cases_fts(rowid, case_number, subject, description, contact_name, contact_email, tags)
+    VALUES (new.rowid, new.case_number, new.subject, new.description,
+      COALESCE(new.contact_name,''), COALESCE(new.contact_email,''), new.tags);
+  END;
 `)
+
+// Rebuild FTS index from any rows that existed before the virtual table was created.
+// Safe to call on every startup — FTS5 'rebuild' replaces the index content atomically.
+db.exec(`INSERT INTO cases_fts(cases_fts) VALUES('rebuild')`)

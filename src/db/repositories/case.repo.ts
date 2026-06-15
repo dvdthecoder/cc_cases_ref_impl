@@ -129,11 +129,29 @@ export const caseRepo = {
     if (filters.type) { parts.push('AND type = @type'); params.type = filters.type }
     if (filters.issueType) { parts.push('AND issue_type = @issueType'); params.issueType = filters.issueType }
     if (filters.search) {
-      parts.push('AND (subject LIKE @search OR description LIKE @search)')
-      params.search = `%${filters.search}%`
+      // Strip FTS5 special characters to avoid parse errors, then add prefix wildcards
+      // so "billing port" matches "billing portal" without requiring exact words.
+      const ftsQuery = filters.search
+        .replace(/[^\w\s]/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((w) => `${w}*`)
+        .join(' ')
+
+      if (ftsQuery) {
+        // Subquery deduplicates rowids when the search term hits multiple columns
+        // (e.g. "billing" in both subject and description would produce 2 FTS rows)
+        parts.push('AND cases.rowid IN (SELECT DISTINCT rowid FROM cases_fts WHERE cases_fts MATCH @ftsQuery)')
+        parts.push('ORDER BY created_at DESC')
+        params.ftsQuery = ftsQuery
+      } else {
+        parts.push('ORDER BY created_at DESC')
+      }
+    } else {
+      parts.push('ORDER BY created_at DESC')
     }
 
-    parts.push('ORDER BY created_at DESC')
     const rows = db.prepare(parts.join(' ')).all(params) as Record<string, unknown>[]
     return rows.map(deserialize)
   },

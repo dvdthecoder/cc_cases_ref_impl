@@ -9,24 +9,32 @@ import {
   CASE_TYPES,
 } from '../domain/case.types'
 
+const MAX_CUSTOM_FIELDS_BYTES = 16_384 // 16 KB serialized
+
 const createSchema = z.object({
   subject: z.string().min(1).max(255),
-  description: z.string().min(1),
+  description: z.string().min(1).max(32_000),       // ~32 KB — enough for any support case
   priority: z.enum(CASE_PRIORITIES).optional(),
   type: z.enum(CASE_TYPES).optional(),
   issueType: z.enum(CASE_ISSUE_TYPES).optional(),
   channel: z.enum(CASE_CHANNELS).optional(),
-  category: z.string().optional(),
-  subcategory: z.string().optional(),
-  contactId: z.string().optional(),
-  contactName: z.string().optional(),
-  contactEmail: z.string().email().optional(),
-  contactPhone: z.string().optional(),
-  accountId: z.string().optional(),
-  assigneeId: z.string().optional(),
-  ccEmailAddresses: z.array(z.string().email()).optional(),
-  tags: z.array(z.string()).optional(),
-  customFields: z.record(z.unknown()).optional(),
+  category: z.string().max(100).optional(),
+  subcategory: z.string().max(100).optional(),
+  contactId: z.string().max(255).optional(),
+  contactName: z.string().max(255).optional(),
+  contactEmail: z.string().email().max(254).optional(),
+  contactPhone: z.string().max(50).optional(),
+  accountId: z.string().max(255).optional(),
+  assigneeId: z.string().max(255).optional(),
+  ccEmailAddresses: z.array(z.string().email()).max(20).optional(),
+  tags: z.array(z.string().max(64)).max(50).optional(),
+  customFields: z
+    .record(z.unknown())
+    .refine(
+      (v) => !v || JSON.stringify(v).length <= MAX_CUSTOM_FIELDS_BYTES,
+      `customFields must not exceed ${MAX_CUSTOM_FIELDS_BYTES / 1024} KB serialized`
+    )
+    .optional(),
 })
 
 const updateSchema = createSchema.partial().extend({
@@ -76,7 +84,7 @@ export async function casesRoutes(app: FastifyInstance) {
 
   app.post('/cases/:id/resolve', async (req, reply) => {
     const { id } = req.params as { id: string }
-    const { resolution } = z.object({ resolution: z.string().min(1) }).parse(req.body)
+    const { resolution } = z.object({ resolution: z.string().min(1).max(5_000) }).parse(req.body)
     const c = caseService.resolve(id, req.orgId, req.tenantId, resolution)
     if (!c) return reply.code(404).send({ error: 'Case not found' })
     return c
