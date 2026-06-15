@@ -5,87 +5,133 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Install root dependencies
+# Install dependencies (run both on first clone)
 npm install
-
-# Install UI dependencies
 npm install --prefix ui
 
-# Start API server (port 3000, hot-reload)
-npm run dev
+# Development (two terminals)
+npm run dev          # API on http://localhost:3000 with hot-reload
+npm run dev:ui       # UI on http://localhost:5173 (proxies /api → 3000)
 
-# Start UI dev server (port 5173, proxies /api → 3000)
-npm run dev:ui
-
-# Run both concurrently
+# Or run both in one terminal
 npm run dev:all
 
-# Seed demo cases (5 cases + comments + lifecycle events)
+# Load 5 demo cases with comments, escalations, and lifecycle events
 npm run seed
 
-# CLI: export a case as a platform payload
+# CLI: transform a case to a platform payload and print it
 npm run export -- --id CASE-000001 --to salesforce
-npm run export -- --id CASE-000001 --to all
+npm run export -- --id CASE-000001 --to all   # all 5 platforms
+
+# Type-check (no emit)
+npx tsc --noEmit
+npx tsc --noEmit -p ui/tsconfig.json
 ```
 
-Database (`cases.db`) is created automatically in the project root on first run. Delete it to reset.
+`cases.db` is created automatically on first run. Delete it to reset all data.
 
 ## Architecture
 
-### Backend (`src/`)
-
-**Layer order**: routes → service → repositories → DB
-
-- `src/domain/` — canonical TypeScript types (`Case`, `CaseEvent`, enums). No logic here.
-- `src/db/index.ts` — creates the SQLite database and all tables on import (auto-migration via `CREATE TABLE IF NOT EXISTS`). Import this once in `server.ts`.
-- `src/db/repositories/` — raw `better-sqlite3` prepared statements. Repositories are plain objects (`caseRepo`, `commentRepo`, `eventRepo`), no classes. JSON columns (`tags`, `customFields`, `ccEmailAddresses`) are serialized/deserialized in `deserialize()`.
-- `src/services/case.service.ts` — all business logic lives here. Every mutating method persists an event via `eventRepo.create()` and then publishes it to `eventBus.publish()`. This is the only place events are emitted.
-- `src/services/event.bus.ts` — thin `EventEmitter` wrapper. Events are emitted on `org:<orgId>` channels (for SSE fan-out) and `case:<caseId>` channels (for per-case listeners). SSE routes subscribe via `eventBus.subscribeOrg()`.
-- `src/transformers/` — pure functions. Each transformer maps `Case → TransformResult` with no side effects. Add new platforms here without touching routes or services.
-- `src/routes/stream.routes.ts` — SSE endpoint at `GET /api/v1/events/stream`. Keeps connection alive with 25 s pings. The UI LiveFeed component connects here.
-
-### Multi-tenancy
-
-`orgId` and `tenantId` are extracted from `x-org-id` / `x-tenant-id` request headers in a `preHandler` hook in `server.ts`. Both default to `demo-org` / `demo-tenant` when absent. All repository queries are scoped by `orgId`.
-
-### Canonical Case Model
-
-5-tier priority (`low → critical`), 6-state lifecycle (`new → open → pending → on_hold → resolved → closed`), and 5 case types covering the union of all four target platforms. Field mapping decisions are documented in the transformer files.
-
-### Transformer Pattern
+### Layer order
 
 ```
-src/transformers/
-  index.ts              — transform(case, platform) + transformAll(case)
-  aws.transformer.ts    → AWS Support CreateCase (SigV4, 2-tier issueType)
-  salesforce.transformer.ts → POST /sobjects/Case (3-tier priority, SF Status picklist)
-  zendesk.transformer.ts    → POST /api/v2/tickets (hold status, 4-tier priority)
-  hubspot.transformer.ts    → POST /crm/v3/objects/tickets (pipeline stages, associations)
+HTTP request
+  → Fastify route (validation via Zod)
+  → CaseService (business logic, event emission)
+  → Repository (DB reads/writes)
+  → src/db/index.ts (SQLite connection — the only DB-specific file outside repositories)
 ```
 
-Each transformer returns `{ platform, endpoint, method, headers, payload, notes[] }`. The `notes[]` array flags lossy mappings (e.g. "critical → urgent") so the caller knows what was dropped.
+### `src/domain/`
+Canonical TypeScript types only — `Case`, `CaseEvent`, all enums (`CaseStatus`, `CasePriority`, etc.), `TransformResult`. No logic, no imports from other src/ directories. This layer is fully backend-agnostic.
 
-### UI (`ui/`)
+### `src/db/`
+**The entire database coupling lives here.** Nothing outside `src/db/` touches `better-sqlite3` or raw SQL.
 
-React + Vite + Tailwind + React Query. Vite proxies `/api` to `localhost:3000`.
+- `index.ts` — opens the SQLite connection, runs all DDL (`CREATE TABLE IF NOT EXISTS`), creates indexes, and sets up the FTS5 virtual table with its INSERT/UPDATE/DELETE triggers. Also runs `INSERT INTO cases_fts(cases_fts) VALUES('rebuild')` on startup to index any pre-existing rows.
+- `repositories/` — plain objects (`caseRepo`, `commentRepo`, `eventRepo`). All methods are **synchronous** (better-sqlite3 is a sync driver). JSON columns (`tags`, `customFields`, `ccEmailAddresses`) are serialized to TEXT on write and deserialized in each `deserialize()` function on read.
 
-- `ui/src/api/client.ts` — typed fetch wrapper. All calls send `x-org-id: demo-org` / `x-tenant-id: demo-tenant`.
-- `ui/src/components/LiveFeed.tsx` — SSE client. Subscribes to `/api/v1/events/stream` and displays events in real time in the right sidebar.
-- `ui/src/pages/CaseDetail.tsx` — 4-tab view: Details | Comments | Events | Export. The Export tab renders `ExportPanel` with per-platform payload previews and a "Simulate Push" button.
+### `src/services/case.service.ts`
+All business logic. Every mutating method:
+1. Calls the relevant repository method(s)
+2. Calls `eventRepo.create()` to persist the event
+3. Calls `eventBus.publish(event)` to broadcast it
 
-### Event Flow
+This is the **only** place events are emitted. Service methods have no `async/await` because the repositories are synchronous.
+
+### `src/services/event.bus.ts`
+Thin `EventEmitter` wrapper. Emits on `org:<orgId>` (for SSE fan-out to connected UIs) and `case:<caseId>` (for per-case listeners). SSE routes subscribe via `eventBus.subscribeOrg()`.
+
+### `src/transformers/`
+Pure functions — `Case → TransformResult`. No imports from `src/db/` or `src/services/`. Safe to test in isolation.
 
 ```
-HTTP action (e.g. POST /cases/:id/resolve)
+index.ts                 — transform(c, platform) and transformAll(c)
+aws.transformer.ts       → AWS Support CreateCase (SigV4, 2-tier issueType, 5-tier severity)
+salesforce.transformer.ts → POST /sobjects/Case (3-tier priority, Status picklist)
+zendesk.transformer.ts   → POST /api/v2/tickets (hold status, 4-tier priority, tags)
+hubspot.transformer.ts   → POST /crm/v3/objects/tickets (pipeline stages, associations)
+oracle.transformer.ts    → POST /services/rest/connect/v1.4/incidents (threads[], severity)
+```
+
+Each returns `{ platform, endpoint, method, headers, payload, notes[] }`. `notes[]` documents every lossy mapping — read it to understand why a payload field differs from the canonical case.
+
+### `src/routes/`
+Fastify plugin functions. Validation is Zod (not Fastify's JSON Schema). Body size limits are enforced at two levels: 512 KB hard cap in `server.ts` bodyLimit, and per-field limits in each Zod schema.
+
+- `stream.routes.ts` — SSE endpoint `GET /api/v1/events/stream`. Keeps alive with 25 s comment pings. Registered before the rate-limit plugin so SSE connections aren't counted per-request.
+
+### `ui/`
+React 18 + Vite 8 + Tailwind 3 + React Query 5.
+
+- `ui/src/api/client.ts` — typed fetch wrapper; hardcodes `x-org-id: demo-org` / `x-tenant-id: demo-tenant` for demo.
+- `ui/src/components/LiveFeed.tsx` — SSE client via `EventSource`. Listens to both `onmessage` (generic) and named event listeners for each `case.*` type.
+- `ui/src/pages/CaseDetail.tsx` — Details | Comments | Events | Export tabs. Export tab shows per-platform JSON payloads and "Simulate Push" button (fires `case.exported` event).
+
+## Search
+
+Full-text search uses SQLite **FTS5** with Porter stemming (`tokenize='porter ascii'`). The virtual table `cases_fts` indexes `subject`, `description`, `contact_name`, `contact_email`, `tags`, and `case_number` using external-content mode (no text duplication — tokens only). Three triggers keep it in sync. The repository converts user input to prefix queries (`billing port` → `billing* port*`) and uses a subquery to avoid duplicate rows when a term hits multiple columns.
+
+## Field Size Limits
+
+Enforced at the Zod layer before any DB write:
+
+| Field | Limit |
+|---|---|
+| `subject` | 255 chars |
+| `description` | 32,000 chars |
+| `comment.body` | 50,000 chars |
+| `resolution` | 5,000 chars |
+| `customFields` | 16 KB serialized |
+| `tags` | 50 items × 64 chars |
+| `ccEmailAddresses` | 20 addresses |
+
+## Security
+
+- `@fastify/helmet` — security headers on every response
+- `@fastify/rate-limit` — 200 req/min/IP; SSE stream excluded
+- `bodyLimit: 512 KB` in Fastify options
+- `x-request-id` attached to every request
+- Error handler never returns stack traces to clients
+- All SQL uses parameterized statements — no string interpolation
+- `node:crypto.randomUUID()` for ID generation (no external uuid package)
+
+## Event Flow
+
+```
+POST /api/v1/cases/:id/resolve
+  → casesRoutes handler
   → caseService.resolve()
-  → caseRepo.patch()           (persists state)
-  → eventRepo.create()         (persists event to SQLite)
-  → eventBus.publish(event)    (in-process EventEmitter)
-      → SSE stream → UI LiveFeed panel (real time)
-      → EventTimeline (polls every 3 s as fallback)
+      → caseRepo.patch()        writes DB
+      → eventRepo.create()      persists CaseEvent to DB
+      → eventBus.publish(event)
+            → org:<orgId> channel → SSE stream → UI LiveFeed (real time)
+            → case:<caseId> channel → any per-case listeners
 ```
 
-### API Endpoints
+The DB is the source of truth. The bus is delivery-only — if the SSE connection drops, the client polls `/api/v1/cases/:id/events` every 3 s as a fallback.
+
+## API Endpoints
 
 ```
 POST   /api/v1/cases
@@ -94,28 +140,42 @@ GET    /api/v1/cases/:id
 PATCH  /api/v1/cases/:id
 
 POST   /api/v1/cases/:id/escalate
-POST   /api/v1/cases/:id/resolve      body: { resolution }
+POST   /api/v1/cases/:id/resolve        body: { resolution }
 POST   /api/v1/cases/:id/close
 POST   /api/v1/cases/:id/reopen
-POST   /api/v1/cases/:id/assign       body: { assigneeId }
+POST   /api/v1/cases/:id/assign         body: { assigneeId }
 
 POST   /api/v1/cases/:id/comments
 GET    /api/v1/cases/:id/comments
 GET    /api/v1/cases/:id/events
-GET    /api/v1/events                 ?limit=50
+GET    /api/v1/events                   ?limit=50
+GET    /api/v1/events/stream            SSE
 
-POST   /api/v1/cases/:id/export/:platform    (dry-run, no side effects)
-POST   /api/v1/cases/:id/export              (all 4 platforms at once)
-POST   /api/v1/cases/:id/push/:platform      (dry-run + emits case.exported event)
+POST   /api/v1/cases/:id/export/:platform    dry-run, no side effects
+POST   /api/v1/cases/:id/export              all 5 platforms at once
+POST   /api/v1/cases/:id/push/:platform      dry-run + emits case.exported
 
-GET    /api/v1/events/stream          SSE
 GET    /api/v1/meta
 GET    /health
 ```
 
-## Key Decisions
+## Swapping the Storage Backend
 
-- `better-sqlite3` is synchronous — no `await` in repository methods. This is intentional for simplicity; SQLite is single-writer anyway.
-- Events are always persisted to DB before being published to the bus. The DB is the source of truth; the bus is delivery-only.
-- Transformer `notes[]` document lossy mappings at the field level — read these when debugging why a Salesforce/HubSpot payload looks different from the canonical case.
-- The `closedAt`/`resolvedAt` timestamps are nullable; the service sets them only on the relevant lifecycle transitions, not on arbitrary `PATCH /cases/:id`.
+SQLite is **not** hard-wired to the business logic. The coupling is limited to:
+
+| File | What changes |
+|---|---|
+| `src/db/index.ts` | Replace `better-sqlite3` with your driver; rewrite DDL |
+| `src/db/repositories/*.repo.ts` | Rewrite queries for new dialect |
+
+Everything outside `src/db/` — domain types, services, event bus, transformers, routes — requires **zero changes**.
+
+One thing to be aware of: `better-sqlite3` is synchronous, so repository methods have no `async/await`. When moving to an async driver (`pg`, `@libsql/client`, Prisma, Drizzle), make every repository method `async`, add `await` to each repository call in `case.service.ts`, and mark the service methods `async` in turn.
+
+PostgreSQL-specific translation notes:
+- `INTEGER` boolean columns → native `BOOLEAN`
+- `TEXT` JSON columns → `JSONB` (more efficient, queryable)
+- `CREATE VIRTUAL TABLE … USING fts5` → `CREATE INDEX … USING GIN(to_tsvector('english', …))`
+- FTS5 `MATCH 'word*'` → `to_tsquery('english', 'word:*')`
+- FTS5 triggers → PostgreSQL trigger functions + `tsvector_update_trigger()`
+- `db.pragma(…)` → removed (PG handles WAL/FK natively)
