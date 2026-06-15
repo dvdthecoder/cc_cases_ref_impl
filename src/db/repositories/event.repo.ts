@@ -1,4 +1,4 @@
-import { v4 as uuid } from 'uuid'
+import { randomUUID } from 'node:crypto'
 import { db } from '../index'
 import type { CaseEvent, CaseEventType } from '../../domain/event.types'
 
@@ -19,7 +19,7 @@ function deserialize(row: Record<string, unknown>): CaseEvent {
 
 export const eventRepo = {
   create(input: Omit<CaseEvent, 'id' | 'createdAt'>): CaseEvent {
-    const id = uuid()
+    const id = randomUUID()
     const ts = now()
 
     db.prepare(`

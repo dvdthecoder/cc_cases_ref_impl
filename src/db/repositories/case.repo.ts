@@ -1,4 +1,4 @@
-import { v4 as uuid } from 'uuid'
+import { randomUUID } from 'node:crypto'
 import { db } from '../index'
 import type {
   Case,
@@ -59,7 +59,7 @@ function nextCaseNumber(): string {
 
 export const caseRepo = {
   create(input: CreateCaseInput): Case {
-    const id = uuid()
+    const id = randomUUID()
     const caseNumber = nextCaseNumber()
     const ts = now()
 

@@ -1,4 +1,4 @@
-import { v4 as uuid } from 'uuid'
+import { randomUUID } from 'node:crypto'
 import { db } from '../index'
 import type { CaseComment, CreateCommentInput } from '../../domain/case.types'
 
@@ -20,7 +20,7 @@ function deserialize(row: Record<string, unknown>): CaseComment {
 
 export const commentRepo = {
   create(caseId: string, orgId: string, input: CreateCommentInput): CaseComment {
-    const id = uuid()
+    const id = randomUUID()
     const ts = now()
 
     db.prepare(`
