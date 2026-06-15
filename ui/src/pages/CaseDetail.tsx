@@ -150,7 +150,6 @@ function DetailRow({ label, value }: { label: string; value?: string | boolean |
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
   const [tab, setTab] = useState<Tab>('details')
-  const qc = useQueryClient()
 
   const { data: c, isLoading, error } = useQuery({
     queryKey: ['case', id],

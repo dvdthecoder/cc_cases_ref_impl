@@ -1,0 +1,547 @@
+{
+  "info": {
+    "name": "Cases API — Reference Implementation",
+    "description": "Complete collection for the Cases API reference implementation.\n\nSet the `baseUrl` collection variable to `http://localhost:3000` for local dev.\n\nAll requests send `x-org-id` and `x-tenant-id` headers. These default to `demo-org` / `demo-tenant` on the server if omitted, so the collection variables are pre-filled for the demo.\n\nTo test a different org, update the `orgId` variable.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",  "value": "http://localhost:3000" },
+    { "key": "orgId",    "value": "demo-org" },
+    { "key": "tenantId", "value": "demo-tenant" },
+    { "key": "caseId",   "value": "" }
+  ],
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health",
+            "description": "Returns `{status: 'ok'}`. Use this to confirm the server is running."
+          }
+        },
+        {
+          "name": "Get field metadata (enums)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/meta",
+            "header": [
+              { "key": "x-org-id",    "value": "{{orgId}}" },
+              { "key": "x-tenant-id", "value": "{{tenantId}}" }
+            ],
+            "description": "Returns all valid enum values for status, priority, type, issueType, channel."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cases",
+      "item": [
+        {
+          "name": "Create case",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) { pm.collectionVariables.set('caseId', json.id); }",
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Has caseNumber', () => pm.expect(json.caseNumber).to.match(/^CASE-\\d+$/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" },
+              { "key": "x-tenant-id", "value": "{{tenantId}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Payment gateway timeout in checkout flow\",\n  \"description\": \"Customers are seeing 504 errors on the /checkout endpoint since 14:00 UTC. Affects roughly 30% of transactions.\",\n  \"priority\": \"urgent\",\n  \"type\": \"incident\",\n  \"issueType\": \"post_sales\",\n  \"channel\": \"api\",\n  \"contactName\": \"Ops Team\",\n  \"contactEmail\": \"ops@example.com\",\n  \"tags\": [\"checkout\", \"payments\", \"production\"],\n  \"customFields\": { \"region\": \"eu-west-1\", \"affectedUsers\": 450 }\n}"
+            },
+            "description": "Creates a new case. The response includes the auto-generated `caseNumber` (e.g. CASE-000006) and fires a `case.created` event. The test script saves the case `id` to the `caseId` collection variable for use in subsequent requests."
+          }
+        },
+        {
+          "name": "List cases",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cases",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "cases"]
+            },
+            "header": [
+              { "key": "x-org-id",    "value": "{{orgId}}" },
+              { "key": "x-tenant-id", "value": "{{tenantId}}" }
+            ],
+            "description": "Returns all cases for the org, newest first."
+          }
+        },
+        {
+          "name": "List cases — filter by status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cases?status=open",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "cases"],
+              "query": [{ "key": "status", "value": "open" }]
+            },
+            "header": [
+              { "key": "x-org-id", "value": "{{orgId}}" }
+            ],
+            "description": "Filter by status. Valid values: new, open, pending, on_hold, resolved, closed."
+          }
+        },
+        {
+          "name": "List cases — filter by priority",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cases?priority=urgent",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "cases"],
+              "query": [{ "key": "priority", "value": "urgent" }]
+            },
+            "header": [
+              { "key": "x-org-id", "value": "{{orgId}}" }
+            ]
+          }
+        },
+        {
+          "name": "List cases — full-text search",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cases?search=billing portal",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "cases"],
+              "query": [{ "key": "search", "value": "billing portal" }]
+            },
+            "header": [
+              { "key": "x-org-id", "value": "{{orgId}}" }
+            ],
+            "description": "FTS5 search with Porter stemming across subject, description, contact fields, and tags. Prefix wildcards applied automatically — 'billing port' matches 'billing portal'."
+          }
+        },
+        {
+          "name": "Get case by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}",
+            "header": [
+              { "key": "x-org-id", "value": "{{orgId}}" }
+            ],
+            "description": "Returns the full case. Uses the `caseId` variable set by 'Create case'."
+          }
+        },
+        {
+          "name": "Update case fields",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"priority\": \"critical\",\n  \"tags\": [\"checkout\", \"payments\", \"production\", \"p0\"]\n}"
+            },
+            "description": "Patches any writable fields. Fires `case.updated` or `case.priority_changed`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Lifecycle Actions",
+      "item": [
+        {
+          "name": "Escalate",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/escalate",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "description": "Sets `isEscalated: true` and status to `open`. Fires `case.escalated`."
+          }
+        },
+        {
+          "name": "Resolve",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/resolve",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resolution\": \"Root cause identified: upstream payment provider had a certificate expiry. Renewed and traffic restored at 15:42 UTC.\"\n}"
+            },
+            "description": "Sets status to `resolved` and records the resolution. Fires `case.resolved`. Max 5,000 chars."
+          }
+        },
+        {
+          "name": "Close",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/close",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "description": "Sets status to `closed` and `isClosed: true`. Fires `case.closed`. Terminal state."
+          }
+        },
+        {
+          "name": "Reopen",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/reopen",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "description": "Sets status back to `open` from resolved or closed. Fires `case.reopened`."
+          }
+        },
+        {
+          "name": "Assign",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/assign",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assigneeId\": \"agent_007\"\n}"
+            },
+            "description": "Assigns the case to an agent. Fires `case.assigned`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Comments",
+      "item": [
+        {
+          "name": "Add comment",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/comments",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Confirmed with the payments team — the certificate renewal is complete. Monitoring for the next 2 hours before closing.\",\n  \"authorName\": \"Jane Smith\",\n  \"isPublic\": true\n}"
+            },
+            "description": "Adds a comment. `isPublic: false` marks it as an internal note. Fires `case.comment_added`. Max body: 50,000 chars."
+          }
+        },
+        {
+          "name": "Add internal note",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/comments",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Internal: customer is on an enterprise SLA, escalation path is VP Engineering if not resolved in 1h.\",\n  \"authorName\": \"Support Lead\",\n  \"isPublic\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "List comments",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/comments",
+            "header": [
+              { "key": "x-org-id", "value": "{{orgId}}" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events",
+      "item": [
+        {
+          "name": "Get case event log",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/events",
+            "header": [
+              { "key": "x-org-id", "value": "{{orgId}}" }
+            ],
+            "description": "Full audit trail for a single case, ordered oldest-first."
+          }
+        },
+        {
+          "name": "Get org-wide recent events",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/events?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "events"],
+              "query": [{ "key": "limit", "value": "20" }]
+            },
+            "header": [
+              { "key": "x-org-id", "value": "{{orgId}}" }
+            ],
+            "description": "Returns the most recent events across all cases for the org. Default limit: 50."
+          }
+        },
+        {
+          "name": "SSE live stream (copy URL to browser)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/events/stream",
+            "header": [
+              { "key": "x-org-id", "value": "{{orgId}}" },
+              { "key": "Accept",   "value": "text/event-stream" }
+            ],
+            "description": "Server-Sent Events stream. Postman will hold the connection open and display events as they arrive.\n\nAlternatively paste `http://localhost:3000/api/v1/events/stream` into a browser tab — it streams live as you interact with the UI.\n\nEach event has an `id`, `event` (e.g. `case.created`), and `data` (JSON payload). A `: ping` comment is sent every 25 s to keep the connection alive."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Export — Transform to Platform",
+      "item": [
+        {
+          "name": "Preview — Salesforce",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/export/salesforce",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "description": "Returns the exact JSON body to POST to Salesforce's `/services/data/v60.0/sobjects/Case`. No side effects — nothing is written to the DB."
+          }
+        },
+        {
+          "name": "Preview — Zendesk",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/export/zendesk",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Preview — HubSpot",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/export/hubspot",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Preview — AWS Support",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/export/aws",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Preview — Oracle B2C Service",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/export/oracle",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "description": "Returns the payload for Oracle B2C Service REST Connect v1.4 `/incidents`. Note that Oracle uses 'Incident' terminology and the description maps to a `threads[]` array entry."
+          }
+        },
+        {
+          "name": "Preview — All 5 platforms at once",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/export",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "description": "Returns all 5 platform payloads in a single response. Useful for side-by-side comparison of how the canonical model maps to each target."
+          }
+        },
+        {
+          "name": "Simulate push — Salesforce",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/push/salesforce",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "description": "Same as export but also records a `case.exported` event. No real HTTP call to Salesforce is made — replace the route handler body in `src/routes/export.routes.ts` with an actual `fetch()` to go live."
+          }
+        },
+        {
+          "name": "Simulate push — Zendesk",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/push/zendesk",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Simulate push — HubSpot",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/push/hubspot",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Simulate push — AWS Support",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/push/aws",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Simulate push — Oracle B2C Service",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/push/oracle",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error cases",
+      "item": [
+        {
+          "name": "404 — case not found",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/cases/does-not-exist",
+            "header": [
+              { "key": "x-org-id", "value": "{{orgId}}" }
+            ]
+          }
+        },
+        {
+          "name": "400 — missing required fields",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Missing description\"\n}"
+            },
+            "description": "Returns 400 with Zod validation details — description is required."
+          }
+        },
+        {
+          "name": "400 — description too long",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Test size cap\",\n  \"description\": \"{{$randomLoremParagraphs}}\"\n}"
+            },
+            "description": "Use Postman's dynamic variable to paste a very long string and confirm the 32,000-char cap is enforced."
+          }
+        },
+        {
+          "name": "400 — wrong Content-Type",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases",
+            "header": [
+              { "key": "Content-Type", "value": "text/plain" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "not json" },
+            "description": "Returns 400 — Content-Type must be application/json for mutation requests."
+          }
+        },
+        {
+          "name": "400 — invalid platform",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/cases/{{caseId}}/export/unknown",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-org-id",    "value": "{{orgId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        }
+      ]
+    }
+  ]
+}

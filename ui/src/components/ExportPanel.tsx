@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { TransformResult } from '../api/client'
 
 const PLATFORMS = ['aws', 'salesforce', 'zendesk', 'hubspot', 'oracle'] as const
 type Platform = (typeof PLATFORMS)[number]
