@@ -13,7 +13,7 @@ export type CaseIssueType = (typeof CASE_ISSUE_TYPES)[number]
 export const CASE_CHANNELS = ['web', 'email', 'phone', 'api', 'chat', 'social'] as const
 export type CaseChannel = (typeof CASE_CHANNELS)[number]
 
-export const EXPORT_PLATFORMS = ['aws', 'salesforce', 'zendesk', 'hubspot'] as const
+export const EXPORT_PLATFORMS = ['aws', 'salesforce', 'zendesk', 'hubspot', 'oracle'] as const
 export type ExportPlatform = (typeof EXPORT_PLATFORMS)[number]
 
 export interface Case {

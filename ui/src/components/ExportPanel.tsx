@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { TransformResult } from '../api/client'
 
-const PLATFORMS = ['aws', 'salesforce', 'zendesk', 'hubspot'] as const
+const PLATFORMS = ['aws', 'salesforce', 'zendesk', 'hubspot', 'oracle'] as const
 type Platform = (typeof PLATFORMS)[number]
 
 const PLATFORM_LABELS: Record<Platform, string> = {
@@ -11,6 +11,7 @@ const PLATFORM_LABELS: Record<Platform, string> = {
   salesforce: 'Salesforce',
   zendesk: 'Zendesk',
   hubspot: 'HubSpot',
+  oracle: 'Oracle B2C',
 }
 
 const PLATFORM_COLORS: Record<Platform, string> = {
@@ -18,6 +19,7 @@ const PLATFORM_COLORS: Record<Platform, string> = {
   salesforce: 'bg-blue-600',
   zendesk: 'bg-green-600',
   hubspot: 'bg-orange-600',
+  oracle: 'bg-red-700',
 }
 
 function PlatformPayload({ caseId, platform }: { caseId: string; platform: Platform }) {
